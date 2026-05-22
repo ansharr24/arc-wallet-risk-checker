@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>circle-agent buyer</title>
+    <style>
+      :root {
+        --fg: #111;
+        --muted: #666;
+        --bg: #fff;
+        --line: #e3e3e3;
+        --soft: #f5f5f5;
+        --ok-bg: #e8f5ea;
+        --ok-fg: #1b5e20;
+        --warn-bg: #fff4e0;
+        --warn-fg: #6a3e00;
+        --err-bg: #fdecea;
+        --err-fg: #8c1d17;
+        --accent: #2a5dd0;
+      }
+      body {
+        font: 14px/1.55 -apple-system, system-ui, sans-serif;
+        max-width: 860px;
+        margin: 32px auto;
+        padding: 0 16px;
+        color: var(--fg);
+        background: var(--bg);
+      }
+      h1 { margin: 0 0 8px; }
+      h2 { margin: 32px 0 8px; font-size: 18px; }
+      h3 { margin: 16px 0 4px; font-size: 14px; }
+      p { margin: 4px 0; color: var(--muted); }
+      button { font: inherit; padding: 9px 14px; cursor: pointer; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      input[type="text"] {
+        font: inherit; padding: 7px 9px; border: 1px solid var(--line);
+        border-radius: 4px; min-width: 320px;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code, .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+      pre {
+        background: var(--soft); padding: 10px 12px; border-radius: 6px;
+        overflow: auto; font-size: 12px; margin: 6px 0;
+      }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+      .badge {
+        padding: 2px 8px; border-radius: 4px; background: #eef;
+        font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+        text-decoration: none; color: var(--fg);
+      }
+      .badge.muted { background: #f0f0f0; color: var(--muted); }
+      .badge.ok { background: var(--ok-bg); color: var(--ok-fg); }
+      .badge.warn { background: var(--warn-bg); color: var(--warn-fg); }
+      .badge.err { background: var(--err-bg); color: var(--err-fg); }
+      .step {
+        border-left: 2px solid var(--line); padding: 6px 0 14px 16px;
+        position: relative; margin-left: 8px;
+      }
+      .step::before {
+        content: attr(data-step); position: absolute; left: -14px; top: 3px;
+        width: 26px; height: 26px; border-radius: 50%;
+        background: var(--soft); color: var(--muted);
+        font-size: 11px; font-weight: 600;
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--bg);
+      }
+      .step h3 { margin-top: 0; }
+      .api-call {
+        background: var(--soft); padding: 8px 10px; border-radius: 4px;
+        font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+        margin: 6px 0; word-break: break-all;
+      }
+      .api-call .method {
+        display: inline-block; padding: 1px 6px; border-radius: 3px;
+        background: var(--accent); color: white; font-size: 10px;
+        margin-right: 6px; font-weight: 600;
+      }
+      .api-call .method.post { background: #b5651d; }
+      table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 6px 0; }
+      th, td {
+        padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left;
+        font-family: ui-monospace, Menlo, monospace;
+      }
+      th { background: var(--soft); font-weight: 600; }
+      td.r { text-align: right; }
+      td.pos { color: var(--ok-fg); }
+      td.neg { color: var(--err-fg); }
+      .muted { color: var(--muted); }
+      details { margin: 6px 0; }
+      summary { cursor: pointer; color: var(--accent); }
+      hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>circle-agent buyer</h1>
+    <p>Buyer-side demo for <code>/hello-world</code> paywall, paid via Circle Gateway nanopayments on Arc Testnet. Sign with MetaMask, watch the full settlement trace.</p>
+
+    <h2>1. Live demo</h2>
+    <div class="row">
+      <button id="connect">Connect MetaMask</button>
+      <span id="addr" class="badge muted">not connected</span>
+    </div>
+
+    <div class="row">
+      <button id="pay" disabled>Pay $0.01 and call /hello-world</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <pre id="out">—</pre>
+
+    <hr />
+
+    <h2>2. Payment trace</h2>
+    <p>Pre-loaded with an already-settled example. Or paste any settlement UUID returned by the demo above:</p>
+    <div class="row">
+      <input id="lookupId" type="text" value="c9933054-6b34-44bb-8c04-e7e9e1b8352c" />
+      <button id="lookup">Load trace</button>
+    </div>
+
+    <div id="trace"></div>
+
+    <script type="module">
+      const ARC_TESTNET_HEX = "0x4cef52";
+      const ARC_TESTNET = {
+        chainId: ARC_TESTNET_HEX,
+        chainName: "Arc Testnet",
+        nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+        rpcUrls: ["https://rpc.testnet.arc.network"],
+        blockExplorerUrls: ["https://testnet.arcscan.app"],
+      };
+      const GATEWAY_API = "https://gateway-api-testnet.circle.com";
+      const EXPLORER = "https://testnet.arcscan.app";
+      const FACILITATOR_SETTLE = `${GATEWAY_API}/v1/x402/settle`;
+      const SUPPORTED_URL = `${GATEWAY_API}/v1/x402/supported`;
+      const BALANCES_URL = `${GATEWAY_API}/v1/balances`;
+
+      const addrEl = document.getElementById("addr");
+      const payBtn = document.getElementById("pay");
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+      const traceEl = document.getElementById("trace");
+      const lookupBtn = document.getElementById("lookup");
+      const lookupInput = document.getElementById("lookupId");
+
+      let account = null;
+
+      function setStatus(text, cls = "muted") {
+        statusEl.className = cls;
+        statusEl.textContent = text;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[c]);
+      }
+
+      function getLink(url, label) {
+        return `<a href="${url}" target="_blank" rel="noreferrer">${escapeHtml(label ?? url)}</a>`;
+      }
+
+      function apiCallBox(method, url, body) {
+        const cls = method === "POST" ? "method post" : "method";
+        const link = method === "GET"
+          ? `<a href="${url}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`
+          : escapeHtml(url);
+        const bodyBlock = body
+          ? `\n<details><summary>body</summary><pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre></details>`
+          : "";
+        return `<div class="api-call"><span class="${cls}">${method}</span>${link}${bodyBlock}</div>`;
+      }
+
+      function statusBadgeClass(s) {
+        if (s === "completed" || s === "confirmed") return "badge ok";
+        if (s === "failed") return "badge err";
+        if (s === "received" || s === "batched") return "badge warn";
+        return "badge";
+      }
+
+      async function ensureArcTestnet() {
+        const current = await ethereum.request({ method: "eth_chainId" });
+        if (current === ARC_TESTNET_HEX) return;
+        try {
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: ARC_TESTNET_HEX }],
+          });
+        } catch (e) {
+          if (e?.code === 4902) {
+            await ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [ARC_TESTNET],
+            });
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      document.getElementById("connect").onclick = async () => {
+        if (!window.ethereum) {
+          setStatus("MetaMask not detected", "err");
+          return;
+        }
+        const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+        account = accounts[0];
+        addrEl.textContent = account;
+        addrEl.classList.remove("muted");
+        await ensureArcTestnet();
+        payBtn.disabled = false;
+        setStatus("ready", "ok");
+      };
+
+      function randomNonceHex() {
+        const b = new Uint8Array(32);
+        crypto.getRandomValues(b);
+        return "0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
+      }
+
+      function b64encode(obj) {
+        return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+      }
+      function b64decode(s) {
+        return decodeURIComponent(escape(atob(s)));
+      }
+
+      document.getElementById("pay").onclick = async () => {
+        outEl.textContent = "—";
+        try {
+          setStatus("fetching 402 challenge…");
+          const r1 = await fetch("/hello-world");
+          if (r1.status !== 402) {
+            setStatus(`unexpected ${r1.status}`, "err");
+            outEl.textContent = await r1.text();
+            return;
+          }
+          const challenge = JSON.parse(b64decode(r1.headers.get("PAYMENT-REQUIRED")));
+          const accepted = challenge.accepts[0];
+
+          const chainId = parseInt(accepted.network.split(":")[1], 10);
+          const now = Math.floor(Date.now() / 1000);
+          const validBefore = (now + Math.max(accepted.maxTimeoutSeconds, 7 * 24 * 3600 + 600)).toString();
+          const validAfter = (now - 600).toString();
+          const nonce = randomNonceHex();
+
+          const typedData = {
+            types: {
+              EIP712Domain: [
+                { name: "name", type: "string" },
+                { name: "version", type: "string" },
+                { name: "chainId", type: "uint256" },
+                { name: "verifyingContract", type: "address" },
+              ],
+              TransferWithAuthorization: [
+                { name: "from", type: "address" },
+                { name: "to", type: "address" },
+                { name: "value", type: "uint256" },
+                { name: "validAfter", type: "uint256" },
+                { name: "validBefore", type: "uint256" },
+                { name: "nonce", type: "bytes32" },
+              ],
+            },
+            primaryType: "TransferWithAuthorization",
+            domain: {
+              name: "GatewayWalletBatched",
+              version: "1",
+              chainId,
+              verifyingContract: accepted.extra.verifyingContract,
+            },
+            message: {
+              from: account, to: accepted.payTo, value: accepted.amount,
+              validAfter, validBefore, nonce,
+            },
+          };
+
+          setStatus("waiting for MetaMask signature…");
+          const signature = await ethereum.request({
+            method: "eth_signTypedData_v4",
+            params: [account, JSON.stringify(typedData)],
+          });
+
+          const paymentPayload = {
+            x402Version: 2,
+            payload: {
+              signature,
+              authorization: {
+                from: account, to: accepted.payTo, value: accepted.amount,
+                validAfter, validBefore, nonce,
+              },
+            },
+            accepted, resource: challenge.resource,
+          };
+
+          setStatus("settling via facilitator…");
+          const r2 = await fetch("/hello-world", {
+            headers: { "payment-signature": b64encode(paymentPayload) },
+          });
+          const body = await r2.json().catch(async () => await r2.text());
+          outEl.textContent = JSON.stringify({ status: r2.status, body }, null, 2);
+
+          if (r2.ok) {
+            setStatus("paid ✓ — loading trace below", "ok");
+            const sid = body?.settlementId;
+            if (sid) {
+              lookupInput.value = sid;
+              renderTrace(sid);
+            }
+          } else {
+            setStatus(`server returned ${r2.status}`, "err");
+          }
+        } catch (e) {
+          setStatus("error", "err");
+          outEl.textContent = String(e?.message ?? e);
+        }
+      };
+
+      lookupBtn.onclick = () => renderTrace(lookupInput.value.trim());
+
+      async function renderTrace(settlementId) {
+        if (!settlementId) return;
+        traceEl.innerHTML = `<p class="muted">Loading ${escapeHtml(settlementId)}…</p>`;
+
+        const settlementUrl = `${GATEWAY_API}/v1/x402/transfers/${settlementId}`;
+        let settlement;
+        try {
+          const r = await fetch(`/api/settlement/${settlementId}`);
+          if (!r.ok) throw new Error(`settlement lookup ${r.status}`);
+          settlement = await r.json();
+        } catch (e) {
+          traceEl.innerHTML = `<p class="badge err">lookup failed: ${escapeHtml(e?.message ?? e)}</p>`;
+          return;
+        }
+
+        const buyer = settlement.fromAddress;
+        const seller = settlement.toAddress;
+        const amount = settlement.amount;
+        const amountUsdc = (Number(amount) / 1e6).toFixed(6);
+        const sBadgeCls = statusBadgeClass(settlement.status);
+        const settled = settlement.status === "completed" || settlement.status === "confirmed";
+
+        let batchInfo = null;
+        if (settled) {
+          const br = await fetch(`/api/batch-tx/${settlementId}`);
+          if (br.ok) batchInfo = await br.json();
+        }
+
+        let decoded = null;
+        if (batchInfo?.batchTx) {
+          const dr = await fetch(`/api/decode-batch/${batchInfo.batchTx}`);
+          if (dr.ok) decoded = await dr.json();
+        }
+
+        const allTransfersForBuyer = `${GATEWAY_API}/v1/x402/transfers?from=${buyer}`;
+        const balanceCurl = `curl -s -X POST ${BALANCES_URL} \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify({ token: "USDC", sources: [{ domain: 26, depositor: buyer }] })}'`;
+
+        traceEl.innerHTML = `
+          <div class="row">
+            <span class="muted">Settlement</span>
+            <span class="badge mono">${escapeHtml(settlement.id)}</span>
+            <span class="${sBadgeCls}">${escapeHtml(settlement.status)}</span>
+          </div>
+          <div class="row">
+            <span class="muted">Buyer</span><span class="mono">${escapeHtml(buyer)}</span>
+            <span class="muted">→</span>
+            <span class="muted">Seller</span><span class="mono">${escapeHtml(seller)}</span>
+            <span class="badge">${amountUsdc} USDC</span>
+          </div>
+
+          <div class="step" data-step="1">
+            <h3>Buyer signs EIP-712 payment authorization (off-chain)</h3>
+            <p>The buyer's wallet signs a <code>TransferWithAuthorization</code> typed-data message scoped to the <code>GatewayWallet</code> contract. No tx, no gas — just a signature.</p>
+            <details><summary>Typed data shape</summary><pre>${escapeHtml(JSON.stringify({
+              domain: { name: "GatewayWalletBatched", version: "1", chainId: 5042002, verifyingContract: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9" },
+              primaryType: "TransferWithAuthorization",
+              message: { from: buyer, to: seller, value: amount, validAfter: "<now-600>", validBefore: "<now+30d>", nonce: "<random bytes32>" },
+            }, null, 2))}</pre></details>
+          </div>
+
+          <div class="step" data-step="2">
+            <h3>Merchant's middleware settles via Circle facilitator</h3>
+            <p>The merchant's Express middleware (<code>createGatewayMiddleware</code>) forwards the signed authorization to Circle's facilitator. Circle responds with a <em>settlement ID</em> — not yet a tx hash.</p>
+            ${apiCallBox("POST", FACILITATOR_SETTLE)}
+            <p class="muted">Discover all supported networks/assets:</p>
+            ${apiCallBox("GET", SUPPORTED_URL)}
+          </div>
+
+          <div class="step" data-step="3">
+            <h3>Settlement queued (status: received)</h3>
+            <p>Circle's Gateway accepts the signed auth, optimistically debits the buyer's balance, and returns a UUID. The on-chain tx hasn't fired yet — the relayer batches multiple payments before broadcasting.</p>
+            ${apiCallBox("GET", settlementUrl)}
+            <details open><summary>response</summary><pre>${escapeHtml(JSON.stringify(settlement, null, 2))}</pre></details>
+            <h3>Buyer's Gateway balance (lookup)</h3>
+            <p class="muted">POST endpoint — can't be opened directly, use curl:</p>
+            <pre>${escapeHtml(balanceCurl)}</pre>
+            <p class="muted">All settlements from this buyer:</p>
+            ${apiCallBox("GET", allTransfersForBuyer)}
+          </div>
+
+          <div class="step" data-step="4">
+            <h3>Relayer batches multiple transfers</h3>
+            <p>Circle's relayer (<code>0xc73e…a884</code>) waits for a flush trigger (volume or timer), then calls <code>submitBatch(calldataBytes, signature)</code> on the GatewayWallet contract. One tx settles many buyers' payments at once.</p>
+            <p class="muted">Wait time on testnet: typically 16s, sometimes 10+ minutes during low traffic.</p>
+          </div>
+
+          ${batchInfo?.batchTx ? `
+          <div class="step" data-step="5">
+            <h3>On-chain <code>submitBatch</code> tx</h3>
+            <p>${getLink(batchInfo.explorerUrl, batchInfo.batchTx)}</p>
+            ${decoded ? renderDecoded(decoded, buyer) : `<p class="muted">decoding…</p>`}
+            <details><summary>CLI: decode this batch locally</summary><pre>cd ~/Desktop/desktop/aws_scripts/circle-agent
+npx tsx decode-batch.ts ${batchInfo.batchTx}</pre></details>
+          </div>` : `
+          <div class="step" data-step="5">
+            <h3>On-chain <code>submitBatch</code> tx</h3>
+            <p class="muted">${settled ? "Batch tx not found in recent indexer window — try refreshing." : "Pending — settlement still in queued status. Re-open this trace after it flips to completed."}</p>
+          </div>`}
+
+          <div class="step" data-step="6">
+            <h3>Settlement marked completed</h3>
+            <p>After the batch tx is mined, Circle updates the settlement record. <code>updatedAt</code> on completed settlements aligns with the batch tx's block timestamp (±2s).</p>
+            <p>
+              <span class="muted">createdAt:</span> <span class="mono">${escapeHtml(settlement.createdAt)}</span><br/>
+              <span class="muted">updatedAt:</span> <span class="mono">${escapeHtml(settlement.updatedAt)}</span>
+            </p>
+          </div>
+        `;
+      }
+
+      function renderDecoded(d, focusBuyer) {
+        const tokenShort = d.token.slice(0, 6) + "…" + d.token.slice(-4);
+        const rows = d.entries.map((e) => {
+          const v = e.usdc.startsWith("-") ? e.usdc : "+" + e.usdc;
+          const cls = e.usdc.startsWith("-") ? "neg" : "pos";
+          const highlight = focusBuyer && e.address.toLowerCase() === focusBuyer.toLowerCase();
+          const addrCell = highlight
+            ? `<strong>${escapeHtml(e.address)}</strong>`
+            : escapeHtml(e.address);
+          return `<tr><td class="mono">${addrCell}${highlight ? ' <span class="badge ok">you</span>' : ""}</td><td class="r ${cls}">${v} USDC</td></tr>`;
+        }).join("");
+        const transferRows = d.netTransfers.map((t) => `
+          <tr>
+            <td class="mono">${escapeHtml(t.from)}</td>
+            <td>→</td>
+            <td class="mono">${escapeHtml(t.to)}</td>
+            <td class="r">${t.usdc} USDC</td>
+          </tr>`).join("");
+        return `
+          <table>
+            <tr><th>Field</th><th>Value</th></tr>
+            <tr><td>batch id</td><td class="mono">${escapeHtml(d.batchId)}</td></tr>
+            <tr><td>domain</td><td>${d.domain} (Arc)</td></tr>
+            <tr><td>token</td><td class="mono">${escapeHtml(d.token)} <span class="muted">(${tokenShort})</span></td></tr>
+            <tr><td>contract</td><td class="mono">${escapeHtml(d.innerContract)}</td></tr>
+            <tr><td>relayer</td><td class="mono">${escapeHtml(d.relayer)}</td></tr>
+            <tr><td>block</td><td>${escapeHtml(d.blockNumber)}</td></tr>
+          </table>
+          <h3>Per-buyer deltas (${d.entries.length})</h3>
+          <p class="muted">These are the signed balance changes inside <code>calldataBytes</code>. Negative = debit (payer), positive = credit (recipient). Sum is zero.</p>
+          <table>
+            <tr><th>address</th><th class="r">delta</th></tr>
+            ${rows}
+          </table>
+          <h3>Net transfers (${d.netTransfers.length})</h3>
+          <p class="muted">Pairs of equal-and-opposite deltas, inferred from the entries above.</p>
+          <table>
+            <tr><th>from</th><th></th><th>to</th><th class="r">amount</th></tr>
+            ${transferRows}
+          </table>`;
+      }
+
+      // Auto-load the example on first paint.
+      renderTrace(lookupInput.value);
+    </script>
+  </body>
+</html>
