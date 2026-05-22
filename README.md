@@ -5,7 +5,7 @@ A minimal x402 paid-API demo using Circle's Gateway batching facilitator on Arc 
 ## Prerequisites
 
 - Node.js 20+
-- An Arc Testnet wallet funded with testnet USDC (MetaMask for the browser buyer, or a raw private key for the CLI buyer)
+- An Arc Testnet wallet funded with testnet USDC (MetaMask for the browser buyer, or a raw private key for the CLI buyer). Get testnet USDC from the [Circle faucet](https://faucet.circle.com/).
 
 ## Installation
 
