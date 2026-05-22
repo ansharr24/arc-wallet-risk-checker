@@ -9,6 +9,9 @@ import {
 } from "viem";
 
 const RPC = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
+const GATEWAY_API =
+  process.env.GATEWAY_API ?? "https://gateway-api-testnet.circle.com";
+const SETTLEMENT_WINDOW_MS = 10_000;
 
 const SUBMIT_BATCH_ABI = parseAbi([
   "function submitBatch(bytes calldataBytes, bytes signature)",
@@ -26,9 +29,20 @@ export type NetTransfer = {
   usdc: string;
 };
 
+export type Settlement = {
+  id: string;
+  status: string;
+  fromAddress: string;
+  toAddress: string;
+  amount: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DecodedBatch = {
   txHash: `0x${string}`;
   blockNumber: bigint;
+  blockTimestamp: number;
   relayer: `0x${string}`;
   contract: `0x${string}`;
   batchId: `0x${string}`;
@@ -37,6 +51,10 @@ export type DecodedBatch = {
   innerContract: `0x${string}`;
   entries: BatchEntry[];
   netTransfers: NetTransfer[];
+  // Off-chain heuristic: settlement UUIDs from Circle's Gateway API, keyed by
+  // lowercased buyer address. Matched by `updatedAt` within ±10s of the batch
+  // block timestamp. Settlement UUIDs are not stored on-chain.
+  settlementsByBuyer: Record<string, Settlement[]>;
 };
 
 export async function decodeBatch(
@@ -99,9 +117,40 @@ export async function decodeBatch(
     }
   }
 
+  const blockNumber = tx.blockNumber ?? 0n;
+  const block = await client.getBlock({ blockNumber });
+  const blockTimestamp = Number(block.timestamp);
+
+  const buyerAddrs = Array.from(
+    new Set(
+      entries.filter((e) => e.delta < 0n).map((e) => e.address.toLowerCase()),
+    ),
+  );
+  const settlementsByBuyer: Record<string, Settlement[]> = {};
+  await Promise.all(
+    buyerAddrs.map(async (addr) => {
+      try {
+        const r = await fetch(
+          `${GATEWAY_API}/v1/x402/transfers?from=${addr}`,
+        );
+        if (!r.ok) return;
+        const data = (await r.json()) as { transfers?: Settlement[] };
+        const blockMs = blockTimestamp * 1000;
+        settlementsByBuyer[addr] = (data.transfers ?? []).filter((t) => {
+          if (t.status !== "completed" && t.status !== "confirmed") return false;
+          return Math.abs(new Date(t.updatedAt).getTime() - blockMs) <
+            SETTLEMENT_WINDOW_MS;
+        });
+      } catch {
+        // network/parse failure — leave entry absent
+      }
+    }),
+  );
+
   return {
     txHash,
-    blockNumber: tx.blockNumber ?? 0n,
+    blockNumber,
+    blockTimestamp,
     relayer: tx.from,
     contract: tx.to,
     batchId,
@@ -110,6 +159,7 @@ export async function decodeBatch(
     innerContract,
     entries,
     netTransfers,
+    settlementsByBuyer,
   };
 }
 
@@ -150,6 +200,21 @@ if (invokedDirectly) {
       console.log(`\nnet transfers (${b.netTransfers.length}):`);
       for (const t of b.netTransfers) {
         console.log(`  ${t.from} -> ${t.to}  ${t.usdc} USDC`);
+      }
+      const buyersWithSettlements = Object.entries(b.settlementsByBuyer);
+      if (buyersWithSettlements.length > 0) {
+        console.log(`\nsettlements (off-chain, via Circle Gateway API):`);
+        for (const [addr, settlements] of buyersWithSettlements) {
+          if (settlements.length === 0) {
+            console.log(`  ${addr}: (none matched)`);
+            continue;
+          }
+          console.log(`  ${addr}:`);
+          for (const s of settlements) {
+            const amt = formatSignedUsdc(BigInt(s.amount));
+            console.log(`    ${s.id}  ${amt} USDC  -> ${s.toAddress}`);
+          }
+        }
       }
     })
     .catch((e) => {

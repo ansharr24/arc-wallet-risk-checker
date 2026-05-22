@@ -17,6 +17,7 @@ const SELLER = "0x933a2405f84c224be1ef373ba16e992e1f459682";
 
 const app = express();
 
+app.get("/", (_req, res) => res.redirect("/buyer.html"));
 app.use(express.static("public"));
 
 const gateway = createGatewayMiddleware({
@@ -42,6 +43,13 @@ app.get("/hello-world", gateway.require("$0.01"), (req: PaidRequest, res) => {
 const GATEWAY_API = "https://gateway-api-testnet.circle.com";
 const ARC_EXPLORER = "https://testnet.arcscan.app";
 const GATEWAY_WALLET = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
+
+// Settlements older than ~the indexer's recent-tx window can't be resolved
+// via the live arcscan lookup, so we hardcode known demo settlements.
+const PINNED_BATCH_TX: Record<string, `0x${string}`> = {
+  "c9933054-6b34-44bb-8c04-e7e9e1b8352c":
+    "0xfbad1baae7fd9b88f4e1b034a4236da02012870acbd6ae83b583e85528be396e",
+};
 
 app.get("/api/settlement/:id", async (req, res) => {
   const r = await fetch(`${GATEWAY_API}/v1/x402/transfers/${req.params.id}`);
@@ -74,6 +82,15 @@ app.get("/api/batch-tx/:id", async (req, res) => {
   const settlement = (await sr.json()) as { status: string; updatedAt: string };
   if (settlement.status !== "completed" && settlement.status !== "confirmed") {
     res.json({ batchTx: null, status: settlement.status });
+    return;
+  }
+  const pinned = PINNED_BATCH_TX[req.params.id];
+  if (pinned) {
+    res.json({
+      batchTx: pinned,
+      status: settlement.status,
+      explorerUrl: `${ARC_EXPLORER}/tx/${pinned}`,
+    });
     return;
   }
   const tr = await fetch(

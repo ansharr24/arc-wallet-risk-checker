@@ -403,7 +403,7 @@
           <div class="step" data-step="4">
             <h3>Relayer batches multiple transfers</h3>
             <p>Circle's relayer (<code>0xc73e…a884</code>) waits for a flush trigger (volume or timer), then calls <code>submitBatch(calldataBytes, signature)</code> on the GatewayWallet contract. One tx settles many buyers' payments at once.</p>
-            <p class="muted">Wait time on testnet: typically 16s, sometimes 10+ minutes during low traffic.</p>
+            <p class="muted">Wait time on testnet: usually ~10 minutes because traffic is low. Under heavy load the relayer flushes every few seconds — you won't see that on testnet today.</p>
           </div>
 
           ${batchInfo?.batchTx ? `
