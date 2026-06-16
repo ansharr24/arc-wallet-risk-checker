@@ -26,13 +26,13 @@ const gateway = createGatewayMiddleware({
   networks: ["eip155:5042002"],
 });
 
-app.get("/hello-world", gateway.require("$0.01"), (req: PaidRequest, res) => {
+app.get("/wallet-risk", gateway.require("$0.01"), (req: PaidRequest, res) => {
   const { payer, amount, network, transaction } = req.payment!;
   const formatted = formatUnits(BigInt(amount), 6);
   console.log(`paid ${formatted} USDC by ${payer} on ${network} settlement=${transaction ?? "?"}`);
 
   res.json({
-    message: "hello, world — you paid for this",
+    message: "Arc Wallet Risk Checker",
     paid_by: payer,
     amount_usdc: formatted,
     network,
@@ -117,3 +117,4 @@ app.listen(PORT, () => {
   console.log(`listening on http://localhost:${PORT}`);
   console.log(`seller: ${SELLER}`);
 });
+

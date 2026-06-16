@@ -95,7 +95,7 @@
   </head>
   <body>
     <h1>circle-agent buyer</h1>
-    <p>Buyer-side demo for <code>/hello-world</code> paywall, paid via Circle Gateway nanopayments on Arc Testnet. Sign with MetaMask, watch the full settlement trace.</p>
+    <p>Buyer-side demo for <code>/wallet-risk</code> paywall, paid via Circle Gateway nanopayments on Arc Testnet. Sign with MetaMask, watch the full settlement trace.</p>
 
     <h2>1. Live demo</h2>
     <div class="row">
@@ -104,7 +104,7 @@
     </div>
 
     <div class="row">
-      <button id="pay" disabled>Pay $0.01 and call /hello-world</button>
+      <button id="pay" disabled>Pay $0.01 and check wallet risk</button>
       <span id="status" class="muted"></span>
     </div>
 
@@ -230,7 +230,7 @@
         outEl.textContent = "—";
         try {
           setStatus("fetching 402 challenge…");
-          const r1 = await fetch("/hello-world");
+          const r1 = await fetch("/wallet-risk");
           if (r1.status !== 402) {
             setStatus(`unexpected ${r1.status}`, "err");
             outEl.textContent = await r1.text();
@@ -294,7 +294,7 @@
           };
 
           setStatus("settling via facilitator…");
-          const r2 = await fetch("/hello-world", {
+          const r2 = await fetch("/wallet-risk", {
             headers: { "payment-signature": b64encode(paymentPayload) },
           });
           const body = await r2.json().catch(async () => await r2.text());
